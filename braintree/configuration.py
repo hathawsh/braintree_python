@@ -4,25 +4,70 @@ import braintree
 import braintree.util.http_strategy.pycurl_strategy
 import braintree.util.http_strategy.httplib_strategy
 import braintree.util.http_strategy.requests_strategy
+import contextlib
+import threading
+
+
+_stacks = threading.local()
+
+
+def begin(environment, merchant_id, public_key, private_key):
+    """Start using a Braintree configuration in this thread."""
+    stack = getattr(_stacks, 'stack', None)
+    if stack is None:
+        # Create a stack for this thread.
+        _stacks.stack = stack = []
+    stack.append((environment, merchant_id, public_key, private_key))
+
+
+def end():
+    """Stop using a Braintree configuration in this thread."""
+    _stacks.stack.pop(-1)
+
+
+def current_params():
+    """Get the current Braintree configuration parameters."""
+    # Note: if this raises an error, something forgot to call begin_config().
+    return _stacks.stack[-1]
+
+
+@contextlib.contextmanager
+def context(environment, merchant_id, public_key, private_key):
+    """Context manager for Braintree configuration."""
+    begin(environment, merchant_id, public_key, private_key)
+    try:
+        yield
+    finally:
+        end()
+
 
 class Configuration(object):
     """
     A class representing the configuration of your Braintree account.
-    You must call configure before any other Braintree operations. ::
+    You must call begin before any other Braintree operations in the thread. ::
 
-        braintree.Configuration.configure(
+        braintree.Configuration.begin(
             braintree.Environment.Sandbox,
             "your_merchant_id",
             "your_public_key",
             "your_private_key"
         )
 
-    By default, every request to the Braintree servers verifies the SSL connection
-    using the `PycURL <http://pycurl.sourceforge.net/>`_
-    library.  This ensures valid encryption of data and prevents man-in-the-middle attacks.
+    You can alternatively use the configuration context manager:
 
-    If you are in an environment where you absolutely cannot load `PycURL <http://pycurl.sourceforge.net/>`_, you
-    can turn off SSL Verification by setting::
+        with braintree.Configuration.context(
+                braintree.Environment.Sandbox,
+                "your_merchant_id",
+                "your_public_key",
+                "your_private_key"):
+            ...
+
+    By default, every request to the Braintree servers verifies the SSL
+    connection using either the Requests or PycURL library. This ensures valid
+    encryption of data and prevents man-in-the-middle attacks.
+
+    If you are in an environment where you absolutely cannot load Requests or
+    PycURL, you can turn off SSL Verification by setting::
 
         Configuration.use_unsafe_ssl = True
 
@@ -39,13 +84,8 @@ class Configuration(object):
 
 .. [1] `URL Fetch Python API Overview <https://developers.google.com/appengine/docs/python/urlfetch/overview>`_
     """
-    @staticmethod
-    def configure(environment, merchant_id, public_key, private_key):
-        Configuration.environment = environment
-        Configuration.merchant_id = merchant_id
-        Configuration.public_key = public_key
-        Configuration.private_key = private_key
-        Configuration.use_unsafe_ssl = False
+
+    use_unsafe_ssl = False
 
     @staticmethod
     def gateway():
@@ -53,12 +93,7 @@ class Configuration(object):
 
     @staticmethod
     def instantiate():
-        return Configuration(
-            Configuration.environment,
-            Configuration.merchant_id,
-            Configuration.public_key,
-            Configuration.private_key
-        )
+        return Configuration(*current_params())
 
     @staticmethod
     def api_version():
