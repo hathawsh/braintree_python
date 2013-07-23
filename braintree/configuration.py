@@ -27,13 +27,13 @@ def end():
 
 def current_params():
     """Get the current Braintree configuration parameters."""
-    # Note: if this raises an error, something forgot to call begin_config().
+    # Note: if this raises an error, something forgot to call begin().
     return _stacks.stack[-1]
 
 
 @contextlib.contextmanager
 def context(environment, merchant_id, public_key, private_key):
-    """Context manager for Braintree configuration."""
+    """Context manager for a Braintree configuration."""
     begin(environment, merchant_id, public_key, private_key)
     try:
         yield
